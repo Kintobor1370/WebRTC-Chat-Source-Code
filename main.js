@@ -21,8 +21,19 @@ const firestore = firebase.firestore();
 
 const servers = {
   iceServers: [
+    // STUN
     {
       urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'],
+    },
+
+    // TURN 
+    {
+      urls: [
+        'turn:turn.yourdomain.com:3478?transport=udp',
+        'turn:turn.yourdomain.com:3478?transport=tcp'
+      ],
+      username: 'user',
+      credential: 'pass'
     },
   ],
   iceCandidatePoolSize: 10,
@@ -53,23 +64,26 @@ let shrAudioTrack = null;
 let mixedAudioTrack = null;
 
 // HTML elements
-const placeholder = document.getElementById('placeholder');
-const camButton = document.getElementById('camButton');
-const micButton = document.getElementById('micButton');
-const shrButton = document.getElementById('shrButton');
-const localVideo = document.getElementById('localVideo');
-const callButton = document.getElementById('callButton');
-const callInput = document.getElementById('callInput');
-const remoteVideo = document.getElementById('remoteVideo');
-const endButton = document.getElementById('endButton');
-const iconCam = document.getElementById('iconCam');
-const iconMic = document.getElementById('iconMic');
-const iconShr = document.getElementById('iconShr');
-const idDisplay = document.getElementById('idDisplay');
+const placeholder =  document.getElementById('placeholder');
+const camButton =    document.getElementById('camButton');
+const micButton =    document.getElementById('micButton');
+const shrButton =    document.getElementById('shrButton');
+const localVideo =   document.getElementById('localVideo');
+const callButton =   document.getElementById('callButton');
+const copyButton =   document.getElementById('copyButton');
+const callStatus =   document.getElementById('callStatus');
+const callInput =    document.getElementById('callInput');
+const joinButton =   document.getElementById('joinButton');
+const remoteVideo =  document.getElementById('remoteVideo');
+const endButton =    document.getElementById('endButton');
+const iconCam =      document.getElementById('iconCam');
+const iconMic =      document.getElementById('iconMic');
+const iconShr =      document.getElementById('iconShr');
+const idDisplay =    document.getElementById('idDisplay');
 const answerStatus = document.getElementById('answerStatus');
 
 // Button text elements
-const enMsg = "Enable ";
+const enMsg =  "Enable ";
 const disMsg = "Disable ";
 const camMsg = "Camera";
 const micMsg = "Microphone";
@@ -87,7 +101,6 @@ const iconShrDisabled = 'assets/material-symbols--mimo-disconnect-outline.svg';
 let enableCam = false;
 let enableMic = false;
 let enableShr = false;
-let connected = false;
 let listenTriggered = false;
 
 // Call ID
@@ -104,6 +117,7 @@ const noiseCancelConfig = {
 callInput.addEventListener('input', (event) => {
   // Reset the answer status after a change to call ID input
   answerStatus.innerHTML = '';
+
   let inputValue = event.target.value;
   joinButton.disabled = inputValue.trim() === '';
 });
@@ -152,7 +166,6 @@ camButton.onclick = async () => {
   else {
     // If disabling camera:
     // Replace camera video track with placeholder
-    //videoSender.replaceTrack(null);
     console.log('PLACEHODLER VIDEO TRACK');
     videoSender.replaceTrack(placeholderVideoTrack);
   }
@@ -171,6 +184,7 @@ camButton.onclick = async () => {
 micButton.onclick = async () => {
   if (!enableMic) {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: noiseCancelConfig });
+    micTrack = micStream.getAudioTracks()[0];
     
     // Screen sharing enabled => mix audio tracks
     // Else use microphone audio track only
@@ -211,33 +225,34 @@ shrButton.onclick = async () => {
     });
 
     shrVideoTrack = screenStream.getVideoTracks()[0];
-    shrAudioTrack = screenStream.getAudioTracks()[0];
+
+    // null is added in case getDisplayMedia does not return audio
+    // e.g.: the user enables video streaming only
+    shrAudioTrack = screenStream.getAudioTracks()[0] || null;
+    
+    // Add video track to peer connection
+    videoSender.replaceTrack(shrVideoTrack);
+    
     let mixedAudioStream = null;
-    if (enableMic) {
-      // If microphone enabled:
+    if (enableMic && shrAudioTrack) {
+      // Microphone enabled; Display audio track is present:
       // Mix microphone audio with display audio
       mixedAudioStream = getMixedAudioStream();
       mixedAudioTrack = mixedAudioStream.getAudioTracks()[0];
-    }
-    else {
-      // Else: get display audio track only
-      mixedAudioTrack = screenStream.getAudioTracks()[0];
-    }
-
-    // Add audio and video tracks to peer connection
-    videoSender.replaceTrack(shrVideoTrack);
-    if (audioSender === null) {
-      audioSender = enableMic ? 
-        pc.addTrack(mixedAudioTrack, mixedAudioStream) : 
-        pc.addTrack(shrAudioTrack, screenStream);
-    }
-    else if (enableMic) {
-      // Microphone enabled => use mixed audio track
-      audioSender.replaceTrack(mixedAudioTrack);
-    }
-    else {
-      // Microphone disabled => use display audio track only
-      audioSender.replaceTrack(shrAudioTrack);
+      
+      if (audioSender === null) {
+        audioSender = pc.addTrack(mixedAudioTrack, mixedAudioStream);
+      } else {
+        await audioSender.replaceTrack(mixedAudioTrack);
+      }
+    } else if (shrAudioTrack) {
+      // Microphone disabled; Display track is present:
+      // Replace current audio track with display audio only
+      if (audioSender === null) {
+        audioSender = pc.addTrack(shrAudioTrack, screenStream);
+      } else {
+        await audioSender.replaceTrack(shrAudioTrack);
+      }
     }
   }
   else {
@@ -294,6 +309,18 @@ callButton.onclick = async () => {
   const localVideoTracks = pc.getSenders().length;
   console.log('Offer sent. ', localVideoTracks, ' local video tracks');
 
+  // Enable copy button
+  copyButton.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(callId);
+      console.log('Call ID copied.');
+      callStatus.innerHTML = 'Call ID copied.';
+    } catch (err) {
+      console.error('Failed to copy: ', err);
+    }
+  }
+  copyButton.hidden = false;
+
   // Display call ID
   idDisplay.innerHTML = 'Your call ID: ' + callId;
   enableButtons();
@@ -315,14 +342,9 @@ callButton.onclick = async () => {
       if (change.type === 'added') {
         const candidate = new RTCIceCandidate(change.doc.data());
         pc.addIceCandidate(candidate);
-        document.getElementById('callStatus').innerHTML = 'Connection established!';
+        //callStatus.innerHTML = 'Connection established!';
       }
     });
-    if (!listenTriggered) {
-      connected = true;
-      console.log('connected = ', connected);
-      listenTriggered = true;
-    }
   });
 
   // Listen for end of the call
@@ -338,8 +360,6 @@ callButton.onclick = async () => {
 // 5. Join the call with the unique ID
 joinButton.onclick = async () => {
   disableButtons();
-  answerStatus.innerHTML = 'Searching...';
-  
   const inputId = callInput.value;
   
   // If the offer sender tries to answer their own offer
@@ -370,7 +390,7 @@ joinButton.onclick = async () => {
       return;
     }
   }
-  answerStatus.innerHTML = 'Call found! Connecting...';
+  callStatus.innerHTML = 'Call found! Connecting...';
 
   const offerCandidates = callDoc.collection('offerCandidates');
   const answerCandidates = callDoc.collection('answerCandidates');
@@ -403,7 +423,7 @@ joinButton.onclick = async () => {
       if (change.type === 'added') {
         let data = change.doc.data();
         pc.addIceCandidate(new RTCIceCandidate(data));
-        answerStatus.innerHTML = 'Connection established!';
+        //answerStatus.innerHTML = 'Connection established!';
       }
     });
     if (!listenTriggered) {
@@ -411,8 +431,6 @@ joinButton.onclick = async () => {
       enableButtons();
       callButton.disabled = true;
       joinButton.disabled = true;
-      connected = true;
-      console.log('connected = ', connected);
       listenTriggered = true;
     }
   });
@@ -452,7 +470,7 @@ async function endCall(deleteDoc = false) {
   
   idDisplay.innerHTML = '';
   callInput.value = '';
-  document.getElementById('callStatus').innerHTML = '';
+  callStatus.innerHTML = '';
   answerStatus.innerHTML = '';
   console.log('Call ended');
   enableButtons();
@@ -477,7 +495,6 @@ function initializePeerConnectionSettings() {
   enableCam = false;
   enableMic = false;
   enableShr = false;
-  connected = false;
   listenTriggered = false;
 
   // Reset call ID
@@ -487,28 +504,89 @@ function initializePeerConnectionSettings() {
   localVideo.srcObject = null;
   remoteVideo.srcObject = null;
 
+  // Hide copy call ID button
+  copyButton.hidden = true;
+
   // Reset senders
   audioSender = pc.addTrack(placeholderAudioTrack, placeholderAudioStream);
   videoSender = pc.addTrack(placeholderVideoTrack, placeholderStream);
 
   // Pull tracks from peer connection (remote stream), add to video stream
-  pc.ontrack = (event) => {
-    console.log('ON TRACK');
-    event.streams[0].getTracks().forEach((track) => {
-      // DEBUG
-      console.log('Track added');
-      console.log('   ID:      ', track.id);
-      console.log('   Label:   ', track.label);
-      console.log('   Kind:    ', track.kind);
-      console.log('   Enabled: ', track.enabled);
-      console.log('   RS:      ', track.readyState);
-
-      // Add remote tracks to the remote stream
-      remoteStream.addTrack(track);
+  pc.ontrack = async (event) => {
+    // DEBUG
+    console.log('Remote track received', {
+      kind: event.track.kind,
+      id: event.track.id,
+      label: event.track.label,
+      enabled: event.track.enabled,
+      muted: event.track.muted,
+      readyState: event.track.readyState,
+      streams: event.streams.length
     });
 
-    // Update the remote stream front-end component
-    remoteVideo.srcObject = remoteStream;
+    if (event.streams && event.streams.length > 0) {
+      // Add remote tracks to the remote stream
+      event.streams[0].getTracks().forEach((track) => {
+        remoteStream.addTrack(track);
+      });
+    }
+
+    // Wait until the track is unmuted before expecting video.
+    event.track.onunmute = async () => {
+      console.log('REMOTE TRACK UNMUTED:', event.track.kind);
+      // Update the remote stream front-end component
+      remoteVideo.srcObject = remoteStream;
+    };
+
+    event.track.onmute = () => {
+      console.log('REMOTE TRACK MUTED:', event.track.kind);
+    };
+
+    event.track.onended = () => {
+      console.log('REMOTE TRACK ENDED:', event.track.kind);
+    };
+  };
+
+  // ICE connection status
+  pc.oniceconnectionstatechange = () => {
+    console.log('ICE CONNECTION:', pc.iceConnectionState);
+
+    if (pc.iceConnectionState === 'checking') {
+      callStatus.innerHTML = 'Checking candidates...';
+      console.log('ICE connection checking');
+    }
+
+    if (pc.iceConnectionState === 'failed') {
+      callStatus.innerHTML = 'Connection failed!';
+      console.error('ICE connection failed');
+    }
+
+    if (pc.iceConnectionState === 'disconnected') {
+      callStatus.innerHTML = 'Temporarily disconnected.';
+      console.warn('ICE connection temporarily disconnected');
+    }
+
+    if (
+      pc.iceConnectionState === 'connected' ||
+      pc.iceConnectionState === 'completed'
+    ) {
+      console.log('ICE connection established');
+    }
+  };
+
+  // Peer connection status
+  pc.onconnectionstatechange = () => {
+    console.log('Peer connection:', pc.connectionState);
+
+    if (pc.connectionState === 'connected') {
+      callStatus.innerHTML = 'Connection established!';
+      console.log('Peer connection established');
+    }
+
+    if (pc.connectionState === 'failed') {
+      callStatus.innerHTML = 'Connection failed!';
+      console.error('Peer connection failed');
+    }
   };
 
   updateButtons();
@@ -583,22 +661,22 @@ function updateButtons() {
 
 // Enable buttons
 function enableButtons() {
-  camButton.disabled = false; 
-  micButton.disabled = false;
-  shrButton.disabled = false;
+  camButton.disabled =  false; 
+  micButton.disabled =  false;
+  shrButton.disabled =  false;
   callButton.disabled = false;
   joinButton.disabled = callInput.value.trim() === '';
-  endButton.disabled = callId === null;
+  endButton.disabled =  callId === null;
 }
 
 // Disable buttons
 function disableButtons() {
-  camButton.disabled = true;
-  micButton.disabled = true;
-  shrButton.disabled = true;
+  camButton.disabled =  true;
+  micButton.disabled =  true;
+  shrButton.disabled =  true;
   callButton.disabled = true;
   joinButton.disabled = true;
-  endButton.disabled = true;
+  endButton.disabled =  true;
 }
 
 // Test audio and video streams
