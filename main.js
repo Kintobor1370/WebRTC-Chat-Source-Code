@@ -23,14 +23,13 @@ const servers = {
   iceServers: [
     // STUN
     {
-      urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'],
+      urls: ['stun:yourdomain.com:3478'],
     },
-
-    // TURN 
+    // TURN
     {
       urls: [
-        'turn:turn.yourdomain.com:3478?transport=udp',
-        'turn:turn.yourdomain.com:3478?transport=tcp'
+        'turn:yourdomain.com:3478?transport=udp',
+        'turn:yourdomain.com:3478?transport=tcp'
       ],
       username: 'user',
       credential: 'pass'
@@ -51,6 +50,7 @@ let remoteStream = null;
 let placeholderStream = null;
 let micStream = null;
 let screenStream = null;
+
 let audioSender = null;
 let videoSender = null;
 
@@ -90,18 +90,17 @@ const micMsg = "Microphone";
 const shrMsg = "Screen Sharing";
 
 // Assets
-const iconCamEnabled = 'assets/material-symbols--video-camera-front.svg';
+const iconCamEnabled =  'assets/material-symbols--video-camera-front.svg';
 const iconCamDisabled = 'assets/material-symbols--video-camera-front-off.svg';
-const iconMicEnabled = 'assets/material-symbols--mic.svg';
+const iconMicEnabled =  'assets/material-symbols--mic.svg';
 const iconMicDisabled = 'assets/material-symbols--mic-off.svg';
-const iconShrEnabled = 'assets/material-symbols--mimo-outline.svg';
+const iconShrEnabled =  'assets/material-symbols--mimo-outline.svg';
 const iconShrDisabled = 'assets/material-symbols--mimo-disconnect-outline.svg';
 
 // Indicators
 let enableCam = false;
 let enableMic = false;
 let enableShr = false;
-let listenTriggered = false;
 
 // Call ID
 let callId = null;
@@ -110,7 +109,7 @@ let callId = null;
 const noiseCancelConfig = {
   noiseSuppression: true,
   echoCancellation: true,
-  autoGainControl: true
+  autoGainControl:  true
 };
 
 // Listener for an empty call ID input
@@ -119,7 +118,7 @@ callInput.addEventListener('input', (event) => {
   answerStatus.innerHTML = '';
 
   let inputValue = event.target.value;
-  joinButton.disabled = inputValue.trim() === '';
+  joinButton.disabled = inputValue.trim() === '' || callId !== null;
 });
 
 // Create placeholder audio
@@ -136,6 +135,13 @@ placeholder.onload = () => {
   console.log('Placeholder image load started');
   const ctx = canvas.getContext('2d');
   ctx.drawImage(placeholder, 0, 0, canvas.width, canvas.height);
+  
+  // Refresh the canvas to prevent the video track from muting
+  setInterval(() => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(placeholder, 0, 0, canvas.width, canvas.height);
+  }, 500);
+
   placeholderStream = canvas.captureStream(30);
   placeholderVideoTrack = placeholderStream.getVideoTracks()[0];
   initializePeerConnectionSettings();
@@ -154,14 +160,7 @@ camButton.onclick = async () => {
     camTrack = camStream.getVideoTracks()[0];
     
     // Update the peer connection with camera track
-    if (videoSender === null) {
-      console.log('ADD VIDEO TRACK');
-      videoSender = pc.addTrack(camTrack, camStream);
-    }
-    else {
-      console.log('REPLACE VIDEO TRACK');
-      videoSender.replaceTrack(camTrack);
-    }
+    videoSender.replaceTrack(camTrack);
   }
   else {
     // If disabling camera:
@@ -172,11 +171,10 @@ camButton.onclick = async () => {
   // Confirm camera connectivity
   enableCam = !enableCam;
   enableShr = false;
-  console.log('Camera: ', enableCam ? 'ON' : 'OFF');
+  console.log('Camera:', enableCam ? 'ON' : 'OFF');
   
   updateVideoElements();
   updateButtons();
-  testAudioVideo();
 };
 
 
@@ -190,12 +188,8 @@ micButton.onclick = async () => {
     // Else use microphone audio track only
     const audioStream = enableShr ? getMixedAudioStream() : micStream;
     const audioTrack = audioStream.getTracks()[0];
-    if (audioSender === null) {
-      audioSender = pc.addTrack(audioTrack, audioStream);
-    }
-    else {
-      audioSender.replaceTrack(audioTrack);
-    }
+    
+    audioSender.replaceTrack(audioTrack);
   }
   else {
     if (enableShr) {
@@ -208,11 +202,10 @@ micButton.onclick = async () => {
     }
   }
   enableMic = !enableMic;
-  console.log('Microphone: ', enableMic ? 'ON' : 'OFF');
+  console.log('Microphone:', enableMic ? 'ON' : 'OFF');
   
   updateVideoElements();
   updateButtons();
-  testAudioVideo();
 };
 
 
@@ -270,11 +263,10 @@ shrButton.onclick = async () => {
   // Confirm screen sharing
   enableShr = !enableShr;
   enableCam = false;
-  console.log('Screen sharing: ', enableShr ? 'ON' : 'OFF');
+  console.log('Screen sharing:', enableShr ? 'ON' : 'OFF');
 
   updateVideoElements();
   updateButtons();
-  testAudioVideo();
 };
 
 
@@ -307,7 +299,7 @@ callButton.onclick = async () => {
   await callDoc.set({ offer });
   console.log('Offer added');
   const localVideoTracks = pc.getSenders().length;
-  console.log('Offer sent. ', localVideoTracks, ' local video tracks');
+  console.log('Offer sent.', localVideoTracks, 'local video tracks');
 
   // Enable copy button
   copyButton.onclick = async () => {
@@ -316,7 +308,7 @@ callButton.onclick = async () => {
       console.log('Call ID copied.');
       callStatus.innerHTML = 'Call ID copied.';
     } catch (err) {
-      console.error('Failed to copy: ', err);
+      console.error('Failed to copy:', err);
     }
   }
   copyButton.hidden = false;
@@ -328,21 +320,20 @@ callButton.onclick = async () => {
   joinButton.disabled = true;
 
   // Listen for remote answer
-  callDoc.onSnapshot((snapshot) => {
+  callDoc.onSnapshot(async (snapshot) => {
     const data = snapshot.data();
     if (!pc.currentRemoteDescription && data?.answer) {
       const answerDescription = new RTCSessionDescription(data.answer);
-      pc.setRemoteDescription(answerDescription);
+      await pc.setRemoteDescription(answerDescription);
     }
   });
 
   // When answered, add candidate to peer connection
-  answerCandidates.onSnapshot((snapshot) => {
-    snapshot.docChanges().forEach((change) => {
+  answerCandidates.onSnapshot(async (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
       if (change.type === 'added') {
         const candidate = new RTCIceCandidate(change.doc.data());
-        pc.addIceCandidate(candidate);
-        //callStatus.innerHTML = 'Connection established!';
+        await pc.addIceCandidate(candidate);
       }
     });
   });
@@ -401,14 +392,14 @@ joinButton.onclick = async () => {
   const callData = (await callDoc.get()).data();
 
   const offerDescription = callData.offer;
-  console.log("Offer: ", offerDescription);
+  console.log('Offer:', offerDescription);
   await pc.setRemoteDescription(new RTCSessionDescription(offerDescription));
 
   const numRemoteTracks = pc.getReceivers().length;
-  console.log('Answer: ', numRemoteTracks, ' remote tracks');
+  console.log('Answer:', numRemoteTracks, 'remote tracks');
 
   const answerDescription = await pc.createAnswer();
-  console.log('Descriprion: ', answerDescription);
+  console.log('Descriprion:', answerDescription);
   await pc.setLocalDescription(answerDescription);
 
   const answer = {
@@ -418,21 +409,14 @@ joinButton.onclick = async () => {
 
   await callDoc.update({ answer });
 
-  offerCandidates.onSnapshot((snapshot) => {
-    snapshot.docChanges().forEach((change) => {
+  offerCandidates.onSnapshot(async (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
       if (change.type === 'added') {
-        let data = change.doc.data();
-        pc.addIceCandidate(new RTCIceCandidate(data));
-        //answerStatus.innerHTML = 'Connection established!';
+        await pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
       }
     });
-    if (!listenTriggered) {
-      callId = inputId;
-      enableButtons();
-      callButton.disabled = true;
-      joinButton.disabled = true;
-      listenTriggered = true;
-    }
+    callId = inputId;
+    endButton.disabled = false;
   });
 
   // Listen for end of the call
@@ -495,7 +479,6 @@ function initializePeerConnectionSettings() {
   enableCam = false;
   enableMic = false;
   enableShr = false;
-  listenTriggered = false;
 
   // Reset call ID
   callId = null;
@@ -536,6 +519,7 @@ function initializePeerConnectionSettings() {
       console.log('REMOTE TRACK UNMUTED:', event.track.kind);
       // Update the remote stream front-end component
       remoteVideo.srcObject = remoteStream;
+      console.log('REMOTE AUDIO TRACKS:', remoteStream.getAudioTracks().length);
     };
 
     event.track.onmute = () => {
@@ -549,48 +533,48 @@ function initializePeerConnectionSettings() {
 
   // ICE connection status
   pc.oniceconnectionstatechange = () => {
-    console.log('ICE CONNECTION:', pc.iceConnectionState);
+    console.log('ICE CONNECTION: ', pc.iceConnectionState);
 
     if (pc.iceConnectionState === 'checking') {
       callStatus.innerHTML = 'Checking candidates...';
-      console.log('ICE connection checking');
+    }
+
+    if (pc.iceConnectionState == 'connected') {
+      callStatus.innerHTML = 'Candidate found! Connecting...';
     }
 
     if (pc.iceConnectionState === 'failed') {
-      callStatus.innerHTML = 'Connection failed!';
       console.error('ICE connection failed');
+      callStatus.innerHTML = 'Candidate check failed!';
     }
 
     if (pc.iceConnectionState === 'disconnected') {
-      callStatus.innerHTML = 'Temporarily disconnected.';
       console.warn('ICE connection temporarily disconnected');
-    }
-
-    if (
-      pc.iceConnectionState === 'connected' ||
-      pc.iceConnectionState === 'completed'
-    ) {
-      console.log('ICE connection established');
+      callStatus.innerHTML = 'Temporarily disconnected...';
     }
   };
 
   // Peer connection status
   pc.onconnectionstatechange = () => {
-    console.log('Peer connection:', pc.connectionState);
+    console.log('PEER CONNECTION:', pc.connectionState);
 
     if (pc.connectionState === 'connected') {
       callStatus.innerHTML = 'Connection established!';
-      console.log('Peer connection established');
+      enableButtons();
+      callButton.disabled = true;
+      joinButton.disabled = true;
     }
 
     if (pc.connectionState === 'failed') {
-      callStatus.innerHTML = 'Connection failed!';
       console.error('Peer connection failed');
+      callStatus.innerHTML = 'Connection failed!';
+      enableButtons();
+      remoteVideo.srcObject = null;
+      callButton.disabled = true;
+      joinButton.disabled = true;
     }
   };
-
   updateButtons();
-  testAudioVideo();
 }
 
 
@@ -628,23 +612,23 @@ function getMixedAudioStream() {
   return destination.stream;
 }
 
+
 // Update front-end video elements
 async function updateVideoElements() {
   // Push tracks from the active stream (camera / screen / placeholder) to local stream
   localStream = new MediaStream();
+  
   if (enableCam) {
     localStream.addTrack(camTrack);
   }
   else if (enableShr) {
     localStream.addTrack(shrVideoTrack); 
   }
-  else {
-    localStream.addTrack(placeholderVideoTrack);
-  }
 
   // Update the frontend component
   localVideo.srcObject = localStream;
 }
+
 
 // Update button availability
 function updateButtons() {
@@ -665,7 +649,7 @@ function enableButtons() {
   micButton.disabled =  false;
   shrButton.disabled =  false;
   callButton.disabled = false;
-  joinButton.disabled = callInput.value.trim() === '';
+  joinButton.disabled = callInput.value.trim() === '' || callId !== null;
   endButton.disabled =  callId === null;
 }
 
@@ -677,18 +661,4 @@ function disableButtons() {
   callButton.disabled = true;
   joinButton.disabled = true;
   endButton.disabled =  true;
-}
-
-// Test audio and video streams
-function testAudioVideo() {
-  // Local audio/video status
-  const hasLocalAudio = pc.getSenders().some(s => s.track?.kind === 'audio');
-  const hasLocalVideo = pc.getSenders().some(s => s.track?.kind === 'video');
-
-  // Remote audio/video status
-  const hasRemoteAudio = pc.getReceivers().some(r => r.track?.kind === 'audio');
-  const hasRemoteVideo = pc.getReceivers().some(r => r.track?.kind === 'video');
-
-  console.log('LOCAL: audio: ', hasLocalAudio, '; video: ', hasLocalVideo);
-  console.log('REMOTE: audio: ', hasRemoteAudio, '; video: ', hasRemoteVideo);
 }
