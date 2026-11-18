@@ -23,7 +23,9 @@ const servers = {
   iceServers: [
     // STUN
     {
-      urls: ['stun:yourdomain.com:3478'],
+      urls: [
+      'stun:yourdomain.com:3478'
+      ],
     },
     // TURN
     {
@@ -45,56 +47,57 @@ let pc = new RTCPeerConnection(servers);
 const isMobileByWidth = window.matchMedia('(max-width: 768px)').matches;
 
 // Streams
-let localStream = null;
-let remoteStream = null;
+let localStream       = null;
+let remoteStream      = null;
 let placeholderStream = null;
-let micStream = null;
-let screenStream = null;
+let micStream         = null;
+let screenStream      = null;
 
-let audioSender = null;
-let videoSender = null;
+let senderAudioMic = null;
+let senderAudioShr = null;
+let senderVideo    = null;
 
 // Tracks
-let camTrack = null;
-let micTrack = null;
-let placeholderVideoTrack = null;
-let placeholderAudioTrack = null;
+let camTrack      = null;
 let shrVideoTrack = null;
-let shrAudioTrack = null;
-let mixedAudioTrack = null;
 
 // HTML elements
-const placeholder =  document.getElementById('placeholder');
-const camButton =    document.getElementById('camButton');
-const micButton =    document.getElementById('micButton');
-const shrButton =    document.getElementById('shrButton');
-const localVideo =   document.getElementById('localVideo');
-const callButton =   document.getElementById('callButton');
-const copyButton =   document.getElementById('copyButton');
-const callStatus =   document.getElementById('callStatus');
-const callInput =    document.getElementById('callInput');
-const joinButton =   document.getElementById('joinButton');
-const remoteVideo =  document.getElementById('remoteVideo');
-const endButton =    document.getElementById('endButton');
-const iconCam =      document.getElementById('iconCam');
-const iconMic =      document.getElementById('iconMic');
-const iconShr =      document.getElementById('iconShr');
-const idDisplay =    document.getElementById('idDisplay');
-const answerStatus = document.getElementById('answerStatus');
+const placeholder    = document.getElementById('placeholder');
+const camButton      = document.getElementById('camButton');
+const micButton      = document.getElementById('micButton');
+const shrButton      = document.getElementById('shrButton');
+const localVideo     = document.getElementById('localVideo');
+const remoteVideo    = document.getElementById('remoteVideo');
+const remoteAudioMic = document.getElementById('remoteAudioMic');
+const remoteAudioShr = document.getElementById('remoteAudioShr');
+const callButton     = document.getElementById('callButton');
+const copyButton     = document.getElementById('copyButton');
+const callStatus     = document.getElementById('callStatus');
+const callInput      = document.getElementById('callInput');
+const joinButton     = document.getElementById('joinButton');
+const endButton      = document.getElementById('endButton');
+const sliders        = document.getElementById('sliders');
+const volSliderMic   = document.getElementById('volumeSliderMic');
+const volSliderShr   = document.getElementById('volumeSliderShr');
+const iconCam        = document.getElementById('iconCam');
+const iconMic        = document.getElementById('iconMic');
+const iconShr        = document.getElementById('iconShr');
+const idDisplay      = document.getElementById('idDisplay');
+const answerStatus   = document.getElementById('answerStatus');
 
 // Button text elements
-const enMsg =  "Enable ";
+const enMsg  = "Enable ";
 const disMsg = "Disable ";
 const camMsg = "Camera";
 const micMsg = "Microphone";
 const shrMsg = "Screen Sharing";
 
 // Assets
-const iconCamEnabled =  'assets/material-symbols--video-camera-front.svg';
+const iconCamEnabled  = 'assets/material-symbols--video-camera-front.svg';
 const iconCamDisabled = 'assets/material-symbols--video-camera-front-off.svg';
-const iconMicEnabled =  'assets/material-symbols--mic.svg';
+const iconMicEnabled  = 'assets/material-symbols--mic.svg';
 const iconMicDisabled = 'assets/material-symbols--mic-off.svg';
-const iconShrEnabled =  'assets/material-symbols--mimo-outline.svg';
+const iconShrEnabled  = 'assets/material-symbols--mimo-outline.svg';
 const iconShrDisabled = 'assets/material-symbols--mimo-disconnect-outline.svg';
 
 // Indicators
@@ -112,7 +115,41 @@ const noiseCancelConfig = {
   autoGainControl:  true
 };
 
-// Listener for an empty call ID input
+// Audio adjusments configurations
+const audioContext = new AudioContext();
+const nodeMic = audioContext.createGain();
+const nodeShr = audioContext.createGain();
+
+let srcMic = null;
+let srcShr = null;
+
+// Default volume slider value
+const sliderDefaultValue = 1;
+
+// Set GainNode values to default volume slider values
+nodeMic.gain.value = sliderDefaultValue;
+nodeShr.gain.value = sliderDefaultValue;
+
+nodeMic.connect(audioContext.destination);
+nodeShr.connect(audioContext.destination);
+
+// Event listener for the microphone volume slider adjustment
+volSliderMic.addEventListener('input', () => {
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
+  nodeMic.gain.value = volSliderMic.value;
+});
+
+// Event listener for the screen sharing volume slider adjustment
+volSliderShr.addEventListener('input', () => {
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
+  nodeShr.gain.value = volSliderShr.value;
+});
+
+// Event listener to detect an empty call ID input
 callInput.addEventListener('input', (event) => {
   // Reset the answer status after a change to call ID input
   answerStatus.innerHTML = '';
@@ -121,14 +158,13 @@ callInput.addEventListener('input', (event) => {
   joinButton.disabled = inputValue.trim() === '' || callId !== null;
 });
 
-// Create placeholder audio
-const placeholderAudioStream = getPlaceholderAudioStream();
-placeholderAudioTrack = placeholderAudioStream.getAudioTracks()[0];
-
 // Create placeholder image
 const canvas = document.createElement('canvas');
 canvas.width = remoteVideo.offsetWidth;
 canvas.height = remoteVideo.offsetHeight;
+
+// Placeholder video track
+let placeholderVideoTrack = null;
 
 // Placeholder image load handler
 placeholder.onload = () => {
@@ -160,13 +196,13 @@ camButton.onclick = async () => {
     camTrack = camStream.getVideoTracks()[0];
     
     // Update the peer connection with camera track
-    videoSender.replaceTrack(camTrack);
+    senderVideo.replaceTrack(camTrack);
   }
   else {
     // If disabling camera:
     // Replace camera video track with placeholder
     console.log('PLACEHODLER VIDEO TRACK');
-    videoSender.replaceTrack(placeholderVideoTrack);
+    senderVideo.replaceTrack(placeholderVideoTrack);
   }
   // Confirm camera connectivity
   enableCam = !enableCam;
@@ -182,24 +218,18 @@ camButton.onclick = async () => {
 micButton.onclick = async () => {
   if (!enableMic) {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: noiseCancelConfig });
-    micTrack = micStream.getAudioTracks()[0];
     
-    // Screen sharing enabled => mix audio tracks
-    // Else use microphone audio track only
-    const audioStream = enableShr ? getMixedAudioStream() : micStream;
-    const audioTrack = audioStream.getTracks()[0];
+    // Prepare the microphone audio to be added as a separate track
+    const micSource = audioContext.createMediaStreamSource(micStream);
+    const micNode = audioContext.createGain();
+    const micDest = audioContext.createMediaStreamDestination();
+    micSource.connect(micNode).connect(micDest);
     
-    audioSender.replaceTrack(audioTrack);
+    // Update the peer connection with microphone track
+    senderAudioMic.replaceTrack(micDest.stream.getAudioTracks()[0]);
   }
   else {
-    if (enableShr) {
-      // Screen sharing still enabled => leave screen audio track
-      audioSender.replaceTrack(shrAudioTrack);
-    }
-    else {
-      // Microphone and screen sharing disabled => replace audio track with a placeholder
-      audioSender.replaceTrack(placeholderAudioTrack);
-    }
+    senderAudioMic.replaceTrack(placeholderAudioTrack);
   }
   enableMic = !enableMic;
   console.log('Microphone:', enableMic ? 'ON' : 'OFF');
@@ -221,43 +251,28 @@ shrButton.onclick = async () => {
 
     // null is added in case getDisplayMedia does not return audio
     // e.g.: the user enables video streaming only
-    shrAudioTrack = screenStream.getAudioTracks()[0] || null;
+    const shrAudioTrack =
+      screenStream.getAudioTracks()[0] !== null ?
+        screenStream.getAudioTracks()[0] :
+        placeholderAudioTrack;
     
-    // Add video track to peer connection
-    videoSender.replaceTrack(shrVideoTrack);
+    // Update peer connection with the screen sharing video track
+    senderVideo.replaceTrack(shrVideoTrack);
+
+    // Prepare the screen sharing audio to be added as a separate track
+    const shrSource = audioContext.createMediaStreamSource(
+      new MediaStream([shrAudioTrack])
+    );
+    const shrNode = audioContext.createGain();
+    const shrDest = audioContext.createMediaStreamDestination();
+    shrSource.connect(shrNode).connect(shrDest);
     
-    let mixedAudioStream = null;
-    if (enableMic && shrAudioTrack) {
-      // Microphone enabled; Display audio track is present:
-      // Mix microphone audio with display audio
-      mixedAudioStream = getMixedAudioStream();
-      mixedAudioTrack = mixedAudioStream.getAudioTracks()[0];
-      
-      if (audioSender === null) {
-        audioSender = pc.addTrack(mixedAudioTrack, mixedAudioStream);
-      } else {
-        await audioSender.replaceTrack(mixedAudioTrack);
-      }
-    } else if (shrAudioTrack) {
-      // Microphone disabled; Display track is present:
-      // Replace current audio track with display audio only
-      if (audioSender === null) {
-        audioSender = pc.addTrack(shrAudioTrack, screenStream);
-      } else {
-        await audioSender.replaceTrack(shrAudioTrack);
-      }
-    }
+    // Update peer connection with the screen sharing audio track
+    senderAudioShr.replaceTrack(shrDest.stream.getAudioTracks()[0]);
   }
   else {
-    videoSender.replaceTrack(placeholderVideoTrack);
-    if (enableMic) {
-      // Microphone still enabled => leave microphone audio track
-      audioSender.replaceTrack(micTrack);
-    }
-    else {
-      // Microphone and screen sharing disabled => replace audio track with a placeholder
-      audioSender.replaceTrack(placeholderAudioTrack);
-    }
+    senderVideo.replaceTrack(placeholderVideoTrack);
+    senderAudioShr.replaceTrack(placeholderAudioTrack);
   }
 
   // Confirm screen sharing
@@ -272,6 +287,8 @@ shrButton.onclick = async () => {
 
 // 4. Create an offer
 callButton.onclick = async () => {
+  // Resume audio context on user gesture
+  await audioContext.resume();
   disableButtons();
   idDisplay.innerHTML = 'Creating call...';
   
@@ -350,6 +367,8 @@ callButton.onclick = async () => {
 
 // 5. Join the call with the unique ID
 joinButton.onclick = async () => {
+  // Resume audio context on user gesture
+  await audioContext.resume();
   disableButtons();
   const inputId = callInput.value;
   
@@ -470,10 +489,7 @@ function initializePeerConnectionSettings() {
 
   // Reset tracks
   camTrack = null;
-  micTrack = null;
   shrVideoTrack = null;
-  shrAudioTrack = null;
-  mixedAudioTrack = null;
 
   // Reset indicators
   enableCam = false;
@@ -490,10 +506,38 @@ function initializePeerConnectionSettings() {
   // Hide copy call ID button
   copyButton.hidden = true;
 
-  // Reset senders
-  audioSender = pc.addTrack(placeholderAudioTrack, placeholderAudioStream);
-  videoSender = pc.addTrack(placeholderVideoTrack, placeholderStream);
+  // Hide volume sliders
+  sliders.hidden = true;
 
+  // Reset volume slider values to the default values
+  volSliderMic.value = sliderDefaultValue;
+  volSliderShr.value = sliderDefaultValue;
+
+  // Reset GainNode values to default volume slider values
+  nodeMic.gain.value = sliderDefaultValue;
+  nodeShr.gain.value = sliderDefaultValue;
+
+  // Create placeholder audio
+  const placeholderAudioStreamMic = getPlaceholderAudioStream();
+  const placeholderAudioStreamShr = getPlaceholderAudioStream();
+
+  // Reset senders
+  senderVideo = pc.addTrack(
+    placeholderVideoTrack, 
+    placeholderStream
+  );
+
+  senderAudioMic = pc.addTrack(
+    placeholderAudioStreamMic.getAudioTracks()[0],
+    placeholderAudioStreamMic
+  );
+
+  senderAudioShr = pc.addTrack(
+    placeholderAudioStreamShr.getAudioTracks()[0],
+    placeholderAudioStreamShr
+  );
+
+  // DEFINE EVENT HANDLERS
   // Pull tracks from peer connection (remote stream), add to video stream
   pc.ontrack = async (event) => {
     // DEBUG
@@ -507,6 +551,13 @@ function initializePeerConnectionSettings() {
       streams: event.streams.length
     });
 
+    const transceivers = pc.getTransceivers();
+    
+    // Sender order: 0: video, 1: microphone, 2: screen audio
+    function getSenderOrder() {
+      return transceivers.findIndex(t => t.receiver.track === event.track);
+    }
+
     if (event.streams && event.streams.length > 0) {
       // Add remote tracks to the remote stream
       event.streams[0].getTracks().forEach((track) => {
@@ -517,9 +568,23 @@ function initializePeerConnectionSettings() {
     // Wait until the track is unmuted before expecting video.
     event.track.onunmute = async () => {
       console.log('REMOTE TRACK UNMUTED:', event.track.kind);
+      
       // Update the remote stream front-end component
-      remoteVideo.srcObject = remoteStream;
-      console.log('REMOTE AUDIO TRACKS:', remoteStream.getAudioTracks().length);
+      if (event.track.kind === 'video') {
+        remoteVideo.srcObject = new MediaStream([event.track]);
+        remoteVideo.muted = true;
+      }
+
+      if (event.track.kind === 'audio') {
+        sliders.hidden = false;
+        console.log('Sender order:', getSenderOrder());
+        const [element, source, node] = 
+          getSenderOrder() === 1 ? 
+            [remoteAudioMic, srcMic, nodeMic] :
+            [remoteAudioShr, srcShr, nodeShr];
+        
+        playRemoteAudio(element, event.track, source, node);
+      }
     };
 
     event.track.onmute = () => {
@@ -577,15 +642,40 @@ function initializePeerConnectionSettings() {
   updateButtons();
 }
 
+// Play a remote audio track
+function playRemoteAudio(element, track, src, node) {
+  const stream = new MediaStream([track]);
+
+  // Chrome only delivers remote WebRTC audio if the stream is also attached
+  element.srcObject = stream;
+  
+  // Muted to avoid double playback.
+  element.muted = true;
+  
+  element.play().catch(console.error);
+
+  // Disconnect source if previously used
+  if (src) {
+    src.disconnect();
+  }
+  src = audioContext.createMediaStreamSource(stream);
+  src.connect(node);
+
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
+}
+
 
 // Create placeholder audio
 function getPlaceholderAudioStream() {
-  const audioContext = new AudioContext();
   const osc = audioContext.createOscillator();
-  osc.frequency.value = 0;  // silent
-  const gainNode = audioContext.createGain();
-  gainNode.gain.value = 0; // zero volume
-  osc.connect(gainNode);
+  osc.frequency.value = 0; // silent
+  
+  // Volume control node
+  const nodeZeroVolume = audioContext.createGain();
+  nodeZeroVolume.gain.value = 0; // zero volume
+  osc.connect(nodeZeroVolume);
   const audioStreamDestination = audioContext.createMediaStreamDestination();
   osc.connect(audioStreamDestination);
   osc.start();
@@ -594,10 +684,9 @@ function getPlaceholderAudioStream() {
 }
 
 
-// Mix audio from microphone and screen sharing into a new audio stream
-function getMixedAudioStream() {
+// OLD: Mix audio from microphone and screen sharing into a new audio stream
+async function getMixedAudioStream() {
   // Initialise web audio API
-  const audioContext = new AudioContext();
   const destination = audioContext.createMediaStreamDestination();
 
   // Connect microphone audio to the mixer
@@ -621,6 +710,7 @@ async function updateVideoElements() {
   if (enableCam) {
     localStream.addTrack(camTrack);
   }
+  
   else if (enableShr) {
     localStream.addTrack(shrVideoTrack); 
   }
@@ -645,20 +735,20 @@ function updateButtons() {
 
 // Enable buttons
 function enableButtons() {
-  camButton.disabled =  false; 
-  micButton.disabled =  false;
-  shrButton.disabled =  false;
+  camButton.disabled  = false; 
+  micButton.disabled  = false;
+  shrButton.disabled  = false;
   callButton.disabled = false;
   joinButton.disabled = callInput.value.trim() === '' || callId !== null;
-  endButton.disabled =  callId === null;
+  endButton.disabled  = callId === null;
 }
 
 // Disable buttons
 function disableButtons() {
-  camButton.disabled =  true;
-  micButton.disabled =  true;
-  shrButton.disabled =  true;
+  camButton.disabled  = true;
+  micButton.disabled  = true;
+  shrButton.disabled  = true;
   callButton.disabled = true;
   joinButton.disabled = true;
-  endButton.disabled =  true;
+  endButton.disabled  = true;
 }
