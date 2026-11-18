@@ -9,6 +9,16 @@ body {
   margin: 80px 10px;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+.videocontainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 video {
   width: 40vw;
   height: 30vw;
@@ -16,8 +26,59 @@ video {
   background: #2c3e50;
 }
 
-.videos {
+.icon {
+  width: 6vw;
+  height: 6vw;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.buttoncontainer {
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 10vh; 
+}
+
+.slidercontainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 1rem;
+}
+
+.slider {
+  appearance: none;
+  width: 50%;
+  height: 10px;
+  background: #d3d3d3;
+  outline: none;
+  border-radius: 7px;
+}
+
+.slider:hover {
+  opacity: 1;
+}
+
+.slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 25px;
+  height: 25px;
+  background: #0d5aa7;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+  appearance: none;
+  width: 25px;
+  height: 25px;
+  background: #0d5aa7;
+  border-radius: 50%;
+  cursor: pointer;
 }
