@@ -123,6 +123,8 @@ const nodeShr = audioContext.createGain();
 let srcMic = null;
 let srcShr = null;
 
+let placeholderAudioTrack = null;
+
 // Default volume slider value
 const sliderDefaultValue = 1;
 
@@ -520,6 +522,7 @@ function initializePeerConnectionSettings() {
   // Create placeholder audio
   const placeholderAudioStreamMic = getPlaceholderAudioStream();
   const placeholderAudioStreamShr = getPlaceholderAudioStream();
+  placeholderAudioTrack = placeholderAudioStreamMic.getAudioTracks()[0];
 
   // Reset senders
   senderVideo = pc.addTrack(
