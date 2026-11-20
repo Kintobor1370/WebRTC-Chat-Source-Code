@@ -43,19 +43,22 @@
     <button id="copyButton" hidden>Copy ID</button>
     <p id="callStatus"></p>
 
-    <div class="slidercontainer" id="sliders" hidden>
+    <div class="slidercontainer" id="volume" hidden>
       <span>
-        <h2>User volume</h2>
-        <div class="row">
-          <img class="icon" id="iconVolLow" src="assets/material-symbols--volume-down.svg">
-          <input id="volumeSliderMic" class="slider" type="range" min="0" max="2" value="1" step="0.01" />
-          <img class="icon" id="iconVolHigh" src="assets/material-symbols--volume-up.svg">
-        </div>
-        <h2>Stream volume</h2>
-        <div class="row">
-          <img class="icon" id="iconVolLow" src="assets/material-symbols--volume-down.svg">
-          <input id="volumeSliderShr" class="slider" type="range" min="0" max="2" value="1" step="0.01" />
-          <img class="icon" id="iconVolHigh" src="assets/material-symbols--volume-up.svg">
+        <button id="volumeButton">Adjust volume</button>
+        <div id="sliders" hidden>
+          <h2>User volume</h2>
+          <div class="row">
+            <img class="icon" id="iconVolLow" src="assets/material-symbols--volume-down.svg">
+            <input id="volumeSliderMic" class="slider" type="range" min="0" max="2" value="1" step="0.01" />
+            <img class="icon" id="iconVolHigh" src="assets/material-symbols--volume-up.svg">
+          </div>
+          <h2>Stream volume</h2>
+          <div class="row">
+            <img class="icon" id="iconVolLow" src="assets/material-symbols--volume-down.svg">
+            <input id="volumeSliderShr" class="slider" type="range" min="0" max="2" value="1" step="0.01" />
+            <img class="icon" id="iconVolHigh" src="assets/material-symbols--volume-up.svg">
+          </div>
         </div>
       </span>
     </div>

@@ -76,7 +76,9 @@ const callStatus     = document.getElementById('callStatus');
 const callInput      = document.getElementById('callInput');
 const joinButton     = document.getElementById('joinButton');
 const endButton      = document.getElementById('endButton');
-const sliders        = document.getElementById('sliders');
+const volButton      = document.getElementById('volumeButton');
+const volumeDiv      = document.getElementById('volume');
+const slidersDiv     = document.getElementById('sliders');
 const volSliderMic   = document.getElementById('volumeSliderMic');
 const volSliderShr   = document.getElementById('volumeSliderShr');
 const iconCam        = document.getElementById('iconCam');
@@ -86,11 +88,13 @@ const idDisplay      = document.getElementById('idDisplay');
 const answerStatus   = document.getElementById('answerStatus');
 
 // Button text elements
-const enMsg  = "Enable ";
-const disMsg = "Disable ";
-const camMsg = "Camera";
-const micMsg = "Microphone";
-const shrMsg = "Screen Sharing";
+const enMsg  = ' Enable ';
+const disMsg = 'Disable ';
+const camMsg = 'camera';
+const micMsg = 'microphone';
+const shrMsg = 'screen sharing';
+const volMsg = 'Adjust volume';
+const hidMsg = 'Hide settings';
 
 // Assets
 const iconCamEnabled  = 'assets/material-symbols--video-camera-front.svg';
@@ -361,7 +365,8 @@ callButton.onclick = async () => {
   callDoc.onSnapshot((doc) => {
     if (!doc.exists) {
       endCall();
-      idDisplay.innerHTML = 'Other user has ended the call.';
+      idDisplay.innerHTML = '';
+      callStatus.innerHTML = 'Other user has ended the call.'
     }
   });
 };
@@ -444,13 +449,21 @@ joinButton.onclick = async () => {
   callDoc.onSnapshot((doc) => {
     if (!doc.exists) {
       endCall();
-      idDisplay.innerHTML = 'Other user has ended the call.';
+      idDisplay.innerHTML = '';
+      callStatus.innerHTML = 'Other user has ended the call.'
     }
   });
 };
 
 
-// 6. End the call and delete its document from Firestore
+// 6. Adjust the user or screen stream volume during the call
+volButton.onclick = () => {
+  volButton.innerHTML = slidersDiv.hidden ? hidMsg : volMsg;
+  slidersDiv.hidden = !slidersDiv.hidden;
+}
+
+
+// 7. End the call and delete its document from Firestore
 endButton.onclick = async () => {
   endCall(true);
 }
@@ -509,7 +522,8 @@ function initializePeerConnectionSettings() {
   copyButton.hidden = true;
 
   // Hide volume sliders
-  sliders.hidden = true;
+  volumeDiv.hidden = true;
+  slidersDiv.hidden = true;
 
   // Reset volume slider values to the default values
   volSliderMic.value = sliderDefaultValue;
@@ -579,7 +593,7 @@ function initializePeerConnectionSettings() {
       }
 
       if (event.track.kind === 'audio') {
-        sliders.hidden = false;
+        volumeDiv.hidden = false;
         console.log('Sender order:', getSenderOrder());
         const [element, source, node] = 
           getSenderOrder() === 1 ? 
