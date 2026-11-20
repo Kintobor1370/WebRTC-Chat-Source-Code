@@ -1,11 +1,17 @@
+// REPLACE 'yourwebdomain.com' with the web domain 
+// that you host the web application on
+
 import { defineConfig } from 'vite';
-import basicSsl from '@vitejs/plugin-basic-ssl';
 
 export default defineConfig({
-  plugins: [basicSsl()],
-  server: {
-    https: true,
+  preview: {
     host: '0.0.0.0',
-    port: 5173,
+    port: 3000,
+    allowedHosts: ['yourwebdomain.com'],
+  },
+  server: {
+    host: '0.0.0.0',
+    port: 3000,
+    allowedHosts: ['yourwebdomain.com'],
   },
 });
