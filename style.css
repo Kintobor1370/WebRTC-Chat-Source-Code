@@ -1,5 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
+h2 {
+  font-size: 3.5vw;
+}
+
+h3 {
+  font-size: 2.5vw;
+}
+
+p {
+  font-size: 2.5vw;
+}
+
 body {
   font-family: "Press Start 2P", system-ui;
   font-weight: 400;
