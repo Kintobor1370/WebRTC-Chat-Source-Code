@@ -81,9 +81,12 @@ const volumeDiv      = document.getElementById('volume');
 const slidersDiv     = document.getElementById('sliders');
 const volSliderMic   = document.getElementById('volumeSliderMic');
 const volSliderShr   = document.getElementById('volumeSliderShr');
-const iconCam        = document.getElementById('iconCam');
-const iconMic        = document.getElementById('iconMic');
-const iconShr        = document.getElementById('iconShr');
+const iconCamLocal   = document.getElementById('iconCamLocal');
+const iconMicLocal   = document.getElementById('iconMicLocal');
+const iconShrLocal   = document.getElementById('iconShrLocal');
+const iconCamRemote  = document.getElementById('iconCamRemote');
+const iconMicRemote  = document.getElementById('iconMicRemote');
+const iconShrRemote  = document.getElementById('iconShrRemote');
 const idDisplay      = document.getElementById('idDisplay');
 const answerStatus   = document.getElementById('answerStatus');
 
@@ -104,10 +107,13 @@ const iconMicDisabled = 'assets/material-symbols--mic-off.svg';
 const iconShrEnabled  = 'assets/material-symbols--mimo-outline.svg';
 const iconShrDisabled = 'assets/material-symbols--mimo-disconnect-outline.svg';
 
-// Indicators
-let enableCam = false;
-let enableMic = false;
-let enableShr = false;
+// Flags
+let enableCamLocal  = false;
+let enableMicLocal  = false;
+let enableShrLocal  = false;
+let enableCamRemote = false;
+let enableShrRemote = false;
+let offerSent       = false;
 
 // Call ID
 let callId = null;
@@ -173,6 +179,7 @@ canvas.height = remoteVideo.offsetHeight;
 let placeholderVideoTrack = null;
 
 // Placeholder image load handler
+
 placeholder.onload = () => {
   console.log('Placeholder image load started');
   const ctx = canvas.getContext('2d');
@@ -190,12 +197,13 @@ placeholder.onload = () => {
   console.log('Placeholder image load done');
 }
 // Load image AFTER defining the onload handler
-placeholder.src = 'assets/Tenna_screenshot_Technical_Difficulties.jpg';
+// White pixel
+placeholder.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==';
 
 
 // 1. Camera button press
 camButton.onclick = async () => {
-  if (!enableCam) {
+  if (!enableCamLocal) {
     // If enabling camera:
     // Create camera video track
     const camStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -211,18 +219,19 @@ camButton.onclick = async () => {
     senderVideo.replaceTrack(placeholderVideoTrack);
   }
   // Confirm camera connectivity
-  enableCam = !enableCam;
-  enableShr = false;
-  console.log('Camera:', enableCam ? 'ON' : 'OFF');
+  enableCamLocal = !enableCamLocal;
+  enableShrLocal = false;
+  console.log('Camera:', enableCamLocal ? 'ON' : 'OFF');
   
   updateVideoElements();
   updateButtons();
+  updateStatus();
 };
 
 
 // 2. Microphone button press
 micButton.onclick = async () => {
-  if (!enableMic) {
+  if (!enableMicLocal) {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: noiseCancelConfig });
     
     // Prepare the microphone audio to be added as a separate track
@@ -237,17 +246,18 @@ micButton.onclick = async () => {
   else {
     senderAudioMic.replaceTrack(placeholderAudioTrack);
   }
-  enableMic = !enableMic;
-  console.log('Microphone:', enableMic ? 'ON' : 'OFF');
+  enableMicLocal = !enableMicLocal;
+  console.log('Microphone:', enableMicLocal ? 'ON' : 'OFF');
   
   updateVideoElements();
   updateButtons();
+  updateStatus();
 };
 
 
 // 3. Screen sharing button press
 shrButton.onclick = async () => {
-  if (!enableShr) {
+  if (!enableShrLocal) {
     screenStream = await navigator.mediaDevices.getDisplayMedia({ 
       video: true,
       audio: true
@@ -282,12 +292,13 @@ shrButton.onclick = async () => {
   }
 
   // Confirm screen sharing
-  enableShr = !enableShr;
-  enableCam = false;
-  console.log('Screen sharing:', enableShr ? 'ON' : 'OFF');
+  enableShrLocal = !enableShrLocal;
+  enableCamLocal = false;
+  console.log('Screen sharing:', enableShrLocal ? 'ON' : 'OFF');
 
   updateVideoElements();
   updateButtons();
+  updateStatus();
 };
 
 
@@ -314,12 +325,13 @@ callButton.onclick = async () => {
   const offerDescription = await pc.createOffer();
   await pc.setLocalDescription(offerDescription);
 
+  // Push the offer to Firestore
   const offer = {
     type: offerDescription.type,
-    sdp: offerDescription.sdp
+    sdp:  offerDescription.sdp
   };
-
   await callDoc.set({ offer });
+  
   console.log('Offer added');
   const localVideoTracks = pc.getSenders().length;
   console.log('Offer sent.', localVideoTracks, 'local video tracks');
@@ -342,6 +354,15 @@ callButton.onclick = async () => {
   callButton.disabled = true;
   joinButton.disabled = true;
 
+  // Push camera, microphone, and screen sharing status to Firestore
+  offerSent = true;
+  const statusSender = {
+    cam: enableCamLocal,
+    mic: enableMicLocal,
+    shr: enableShrLocal
+  };
+  await callDoc.update({ statusSender });
+
   // Listen for remote answer
   callDoc.onSnapshot(async (snapshot) => {
     const data = snapshot.data();
@@ -362,11 +383,14 @@ callButton.onclick = async () => {
   });
 
   // Listen for end of the call
-  callDoc.onSnapshot((doc) => {
+  callDoc.onSnapshot(async (doc) => {
     if (!doc.exists) {
       endCall();
       idDisplay.innerHTML = '';
       callStatus.innerHTML = 'Other user has ended the call.'
+    } else {
+      console.log('HERE1');
+      await updateRemoteStreamElements();
     }
   });
 };
@@ -407,6 +431,7 @@ joinButton.onclick = async () => {
       return;
     }
   }
+  callId = inputId;
   callStatus.innerHTML = 'Call found! Connecting...';
 
   const offerCandidates = callDoc.collection('offerCandidates');
@@ -417,6 +442,7 @@ joinButton.onclick = async () => {
 
   const callData = (await callDoc.get()).data();
 
+  // retreive the offer description and pass it to Peer Connection
   const offerDescription = callData.offer;
   console.log('Offer:', offerDescription);
   await pc.setRemoteDescription(new RTCSessionDescription(offerDescription));
@@ -428,29 +454,39 @@ joinButton.onclick = async () => {
   console.log('Descriprion:', answerDescription);
   await pc.setLocalDescription(answerDescription);
 
+  // Push answer to Firestore
   const answer = {
     type: answerDescription.type,
-    sdp: answerDescription.sdp
+    sdp:  answerDescription.sdp
   };
-
   await callDoc.update({ answer });
+
+  // Push camera, microphone, and screen sharing status to Firestore
+  const statusRecepient = {
+    cam: enableCamLocal,
+    mic: enableMicLocal,
+    shr: enableShrLocal
+  };
+  await callDoc.update({ statusRecepient });
 
   offerCandidates.onSnapshot(async (snapshot) => {
     snapshot.docChanges().forEach(async (change) => {
       if (change.type === 'added') {
         await pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+        endButton.disabled = false;
       }
     });
-    callId = inputId;
-    endButton.disabled = false;
   });
 
   // Listen for end of the call
-  callDoc.onSnapshot((doc) => {
+  callDoc.onSnapshot(async (doc) => {
     if (!doc.exists) {
       endCall();
       idDisplay.innerHTML = '';
       callStatus.innerHTML = 'Other user has ended the call.'
+    } else {
+      console.log('HERE2');
+      await updateRemoteStreamElements();
     }
   });
 };
@@ -499,17 +535,20 @@ async function endCall(deleteDoc = false) {
 function initializePeerConnectionSettings() {
   // Reset streams
   remoteStream = new MediaStream();
-  micStream = null;
+  micStream    = null;
   screenStream = null;
 
   // Reset tracks
-  camTrack = null;
+  camTrack      = null;
   shrVideoTrack = null;
 
-  // Reset indicators
-  enableCam = false;
-  enableMic = false;
-  enableShr = false;
+  // Reset flags
+  enableCamLocal  = false;
+  enableMicLocal  = false;
+  enableShrLocal  = false;
+  enableCamRemote = false;
+  enableShrRemote = false;
+  offerSent       = false;
 
   // Reset call ID
   callId = null;
@@ -554,6 +593,8 @@ function initializePeerConnectionSettings() {
     placeholderAudioStreamShr
   );
 
+  updateButtons();
+
   // DEFINE EVENT HANDLERS
   // Pull tracks from peer connection (remote stream), add to video stream
   pc.ontrack = async (event) => {
@@ -586,12 +627,15 @@ function initializePeerConnectionSettings() {
     event.track.onunmute = async () => {
       console.log('REMOTE TRACK UNMUTED:', event.track.kind);
       
-      // Update the remote stream front-end component
+      // Update the remote stream video front-end component
       if (event.track.kind === 'video') {
-        remoteVideo.srcObject = new MediaStream([event.track]);
+        // Display empty stream for now. The video element will be updated
+        // with the remote deivce icons in updateRemoteStreamElements()
+        remoteVideo.srcObject = new MediaStream();
         remoteVideo.muted = true;
       }
 
+      // Update the remote stream audio front-end components
       if (event.track.kind === 'audio') {
         volumeDiv.hidden = false;
         console.log('Sender order:', getSenderOrder());
@@ -602,6 +646,8 @@ function initializePeerConnectionSettings() {
         
         playRemoteAudio(element, event.track, source, node);
       }
+
+      updateRemoteStreamElements();
     };
 
     event.track.onmute = () => {
@@ -650,13 +696,13 @@ function initializePeerConnectionSettings() {
     if (pc.connectionState === 'failed') {
       console.error('Peer connection failed');
       callStatus.innerHTML = 'Connection failed!';
+      callId = null;
       enableButtons();
       remoteVideo.srcObject = null;
       callButton.disabled = true;
       joinButton.disabled = true;
     }
   };
-  updateButtons();
 }
 
 // Play a remote audio track
@@ -724,11 +770,11 @@ async function updateVideoElements() {
   // Push tracks from the active stream (camera / screen / placeholder) to local stream
   localStream = new MediaStream();
   
-  if (enableCam) {
+  if (enableCamLocal) {
     localStream.addTrack(camTrack);
   }
   
-  else if (enableShr) {
+  else if (enableShrLocal) {
     localStream.addTrack(shrVideoTrack); 
   }
 
@@ -736,18 +782,73 @@ async function updateVideoElements() {
   localVideo.srcObject = localStream;
 }
 
+// Update remote stream and camera / microphone / screen sharing icons for the remote user
+async function updateRemoteStreamElements() {
+  // Retreive device status of the remote user and set remote icons
+  const callDoc = firestore.collection('calls').doc(callId);
+  const callData = (await callDoc.get()).data();
+  let statusRemote = null;
+  if (offerSent) {
+    if (callData.statusRecepient) {
+      statusRemote = callData.statusRecepient;
+    }
+  } else {
+    statusRemote = callData.statusSender;
+  }
+  if (statusRemote !== null) {
+    // Update remote video stream
+    if ((statusRemote.cam || statusRemote.shr) !== (enableCamRemote || enableShrRemote)) {
+      remoteVideo.srcObject = 
+        (statusRemote.cam || statusRemote.shr) ? 
+          new MediaStream([remoteStream.getVideoTracks()[0]]) : 
+          new MediaStream();
+      remoteVideo.muted = true;
+      enableCamRemote = statusRemote.cam;
+      enableShrRemote = statusRemote.shr;
+    }
+
+    // Update remote device icons
+    iconCamRemote.src = statusRemote.cam ? iconCamEnabled : iconCamDisabled;
+    iconMicRemote.src = statusRemote.mic ? iconMicEnabled : iconMicDisabled;
+    iconShrRemote.src = statusRemote.shr ? iconShrEnabled : iconShrDisabled;
+  }
+}
+
+
+// Push camera, microphone, and screen sharing status to Firestore
+async function updateStatus() {
+  if (pc.connectionState === 'connected') {
+    const callDoc = firestore.collection('calls').doc(callId);
+    if (offerSent) {
+      const statusSender = {
+        cam: enableCamLocal,
+        mic: enableMicLocal,
+        shr: enableShrLocal
+      };
+      await callDoc.update({ statusSender });
+    } else {
+      const statusRecepient = {
+        cam: enableCamLocal,
+        mic: enableMicLocal,
+        shr: enableShrLocal
+      };
+      await callDoc.update({ statusRecepient });
+    }
+  }
+}
+
 
 // Update button availability
 function updateButtons() {
   // Update button text
-  camButton.innerHTML = enableCam ? disMsg + camMsg : enMsg + camMsg;
-  micButton.innerHTML = enableMic ? disMsg + micMsg : enMsg + micMsg;
-  shrButton.innerHTML = enableShr ? disMsg + shrMsg : enMsg + shrMsg;
+  camButton.innerHTML = enableCamLocal ? disMsg + camMsg : enMsg + camMsg;
+  micButton.innerHTML = enableMicLocal ? disMsg + micMsg : enMsg + micMsg;
+  shrButton.innerHTML = enableShrLocal ? disMsg + shrMsg : enMsg + shrMsg;
 
   // Update icons
-  iconCam.src = enableCam ? iconCamEnabled : iconCamDisabled;
-  iconMic.src = enableMic ? iconMicEnabled : iconMicDisabled;
-  iconShr.src = enableShr ? iconShrEnabled : iconShrDisabled;
+  iconCamLocal.src = enableCamLocal ? iconCamEnabled : iconCamDisabled;
+  iconMicLocal.src = enableMicLocal ? iconMicEnabled : iconMicDisabled;
+  iconShrLocal.src = enableShrLocal ? iconShrEnabled : iconShrDisabled;
 }
 
 // Enable buttons
