@@ -1,7 +1,9 @@
 import './style.css';
 
-import firebase from 'firebase/app';
+// Import Firebase
+import { initializeApp, getApps } from 'firebase/app';
 import 'firebase/firestore';
+import { getFirestore, collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import config from './firebaseConfig.json' with { type: 'json' }
 
 // Import firebase configuration parameters
@@ -14,10 +16,10 @@ const firebaseConfig = {
   appId: config.appId
 };
 
-if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
-}
-const firestore = firebase.firestore();
+const app = getApps().length 
+  ? getApps()[0] 
+  : initializeApp(firebaseConfig);
+const firestore = getFirestore(app);
 
 const servers = {
   iceServers: [
@@ -126,7 +128,9 @@ const noiseCancelConfig = {
 };
 
 // Audio adjusments configurations
-const audioContext = new AudioContext();
+// RNNoise only works at 48 kHz
+const rate = 48000;
+const audioContext = new AudioContext({ sampleRate: rate });
 const nodeMic = audioContext.createGain();
 const nodeShr = audioContext.createGain();
 
@@ -134,6 +138,9 @@ let srcMic = null;
 let srcShr = null;
 
 let placeholderAudioTrack = null;
+
+let rnnoiseReady = null;
+let rnnoiseWasm  = null;
 
 // Default volume slider value
 const sliderDefaultValue = 1;
@@ -268,9 +275,9 @@ shrButton.onclick = async () => {
     // null is added in case getDisplayMedia does not return audio
     // e.g.: the user enables video streaming only
     const shrAudioTrack =
-      screenStream.getAudioTracks()[0] !== null ?
-        screenStream.getAudioTracks()[0] :
-        placeholderAudioTrack;
+      screenStream.getAudioTracks()[0] !== null 
+        ? screenStream.getAudioTracks()[0]
+        : placeholderAudioTrack;
     
     // Update peer connection with the screen sharing video track
     senderVideo.replaceTrack(shrVideoTrack);
@@ -311,14 +318,15 @@ callButton.onclick = async () => {
   
   // Reference Firestore collections for signaling
   // When document does not have an ID, Firestore creates one automatically
-  const callDoc = firestore.collection('calls').doc();
+  //const callDoc = firestore.collection('calls').doc();
+  const callDoc = doc(collection(firestore, 'calls'));
   callId = callDoc.id;
-  const offerCandidates = callDoc.collection('offerCandidates');
-  const answerCandidates = callDoc.collection('answerCandidates');
+  const offerCandidates = collection(callDoc, 'offerCandidates');
+  const answerCandidates = collection(callDoc, 'answerCandidates');
 
   // Get candidates for caller, save to db
   pc.onicecandidate = (event) => {
-    event.candidate && offerCandidates.add(event.candidate.toJSON());
+    event.candidate && addDoc(offerCandidates, event.candidate.toJSON());
   };
 
   // Create offer
@@ -330,7 +338,8 @@ callButton.onclick = async () => {
     type: offerDescription.type,
     sdp:  offerDescription.sdp
   };
-  await callDoc.set({ offer });
+  //await callDoc.set({ offer });
+  await setDoc(callDoc, { offer });
   
   console.log('Offer added');
   const localVideoTracks = pc.getSenders().length;
@@ -361,10 +370,11 @@ callButton.onclick = async () => {
     mic: enableMicLocal,
     shr: enableShrLocal
   };
-  await callDoc.update({ statusSender });
+  //await callDoc.update({ statusSender });
+  await updateDoc(callDoc, { statusSender });
 
   // Listen for remote answer
-  callDoc.onSnapshot(async (snapshot) => {
+  onSnapshot(callDoc, async (snapshot) => {
     const data = snapshot.data();
     if (!pc.currentRemoteDescription && data?.answer) {
       const answerDescription = new RTCSessionDescription(data.answer);
@@ -373,7 +383,7 @@ callButton.onclick = async () => {
   });
 
   // When answered, add candidate to peer connection
-  answerCandidates.onSnapshot(async (snapshot) => {
+  onSnapshot(answerCandidates, async (snapshot) => {
     snapshot.docChanges().forEach(async (change) => {
       if (change.type === 'added') {
         const candidate = new RTCIceCandidate(change.doc.data());
@@ -383,7 +393,7 @@ callButton.onclick = async () => {
   });
 
   // Listen for end of the call
-  callDoc.onSnapshot(async (doc) => {
+  onSnapshot(callDoc, async (doc) => {
     if (!doc.exists) {
       endCall();
       idDisplay.innerHTML = '';
@@ -410,9 +420,11 @@ joinButton.onclick = async () => {
     return;
   }
 
-  const callDoc = firestore.collection('calls').doc(inputId);
+  //const callDoc = firestore.collection('calls').doc(inputId);
+  const callDoc = doc(collection(firestore, 'calls'), inputId);
 
-  const snapshot = await callDoc.get();
+  //const snapshot = await callDoc.get();
+  const snapshot = await getDoc(callDoc);
   // if the offer was not created yet
   if (!snapshot.exists) {
     // Display the notification
@@ -434,13 +446,13 @@ joinButton.onclick = async () => {
   callId = inputId;
   callStatus.innerHTML = 'Call found! Connecting...';
 
-  const offerCandidates = callDoc.collection('offerCandidates');
-  const answerCandidates = callDoc.collection('answerCandidates');
+  const offerCandidates = collection(callDoc, 'offerCandidates');
+  const answerCandidates = collection(callDoc, 'answerCandidates');
   pc.onicecandidate = (event) => {
-    event.candidate && answerCandidates.add(event.candidate.toJSON());
+    event.candidate && addDoc(answerCandidates, event.candidate.toJSON());
   };
 
-  const callData = (await callDoc.get()).data();
+  const callData = (await getDoc(callDoc)).data();
 
   // retreive the offer description and pass it to Peer Connection
   const offerDescription = callData.offer;
@@ -459,7 +471,7 @@ joinButton.onclick = async () => {
     type: answerDescription.type,
     sdp:  answerDescription.sdp
   };
-  await callDoc.update({ answer });
+  await updateDoc(callDoc, { answer });
 
   // Push camera, microphone, and screen sharing status to Firestore
   const statusRecepient = {
@@ -467,9 +479,9 @@ joinButton.onclick = async () => {
     mic: enableMicLocal,
     shr: enableShrLocal
   };
-  await callDoc.update({ statusRecepient });
+  await updateDoc(callDoc, { statusRecepient });
 
-  offerCandidates.onSnapshot(async (snapshot) => {
+  onSnapshot(offerCandidates, async (snapshot) => {
     snapshot.docChanges().forEach(async (change) => {
       if (change.type === 'added') {
         await pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
@@ -479,7 +491,7 @@ joinButton.onclick = async () => {
   });
 
   // Listen for end of the call
-  callDoc.onSnapshot(async (doc) => {
+  onSnapshot(callDoc, async (doc) => {
     if (!doc.exists) {
       endCall();
       idDisplay.innerHTML = '';
@@ -506,13 +518,13 @@ endButton.onclick = async () => {
 
 
 // End the call (with or without deleting call data)
-async function endCall(deleteDoc = false) {
+async function endCall(deleteCallDoc = false) {
   disableButtons();
   idDisplay.innerHTML = 'Ending call...';
 
-  if (deleteDoc) {
-    const callDoc = firestore.collection('calls').doc(callId);
-    await callDoc.delete();
+  if (deleteCallDoc) {
+    const callDoc = doc(collection(firestore, 'calls'), callId);
+    await deleteDoc(callDoc);
     console.log('Call data deleted');
   }
     
@@ -639,10 +651,9 @@ function initializePeerConnectionSettings() {
       if (event.track.kind === 'audio') {
         volumeDiv.hidden = false;
         console.log('Sender order:', getSenderOrder());
-        const [element, source, node] = 
-          getSenderOrder() === 1 ? 
-            [remoteAudioMic, srcMic, nodeMic] :
-            [remoteAudioShr, srcShr, nodeShr];
+        const [element, source, node] = getSenderOrder() === 1
+          ? [remoteAudioMic, srcMic, nodeMic]
+          : [remoteAudioShr, srcShr, nodeShr];
         
         playRemoteAudio(element, event.track, source, node);
       }
@@ -785,8 +796,8 @@ async function updateVideoElements() {
 // Update remote stream and camera / microphone / screen sharing icons for the remote user
 async function updateRemoteStreamElements() {
   // Retreive device status of the remote user and set remote icons
-  const callDoc = firestore.collection('calls').doc(callId);
-  const callData = (await callDoc.get()).data();
+  const callDoc = doc(collection(firestore, 'calls'), callId);
+  const callData = (await getDoc(callDoc)).data();
   let statusRemote = null;
   if (offerSent) {
     if (callData.statusRecepient) {
@@ -798,10 +809,9 @@ async function updateRemoteStreamElements() {
   if (statusRemote !== null) {
     // Update remote video stream
     if ((statusRemote.cam || statusRemote.shr) !== (enableCamRemote || enableShrRemote)) {
-      remoteVideo.srcObject = 
-        (statusRemote.cam || statusRemote.shr) ? 
-          new MediaStream([remoteStream.getVideoTracks()[0]]) : 
-          new MediaStream();
+      remoteVideo.srcObject = (statusRemote.cam || statusRemote.shr)
+        ? new MediaStream([remoteStream.getVideoTracks()[0]])
+        : new MediaStream();
       remoteVideo.muted = true;
       enableCamRemote = statusRemote.cam;
       enableShrRemote = statusRemote.shr;
@@ -818,21 +828,21 @@ async function updateRemoteStreamElements() {
 // Push camera, microphone, and screen sharing status to Firestore
 async function updateStatus() {
   if (pc.connectionState === 'connected') {
-    const callDoc = firestore.collection('calls').doc(callId);
+    const callDoc = doc(collection(firestore, 'calls'), callId);
     if (offerSent) {
       const statusSender = {
         cam: enableCamLocal,
         mic: enableMicLocal,
         shr: enableShrLocal
       };
-      await callDoc.update({ statusSender });
+      await updateDoc(callDoc, { statusSender });
     } else {
       const statusRecepient = {
         cam: enableCamLocal,
         mic: enableMicLocal,
         shr: enableShrLocal
       };
-      await callDoc.update({ statusRecepient });
+      await updateDoc(callDoc, { statusRecepient });
     }
   }
 }
